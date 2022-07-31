@@ -4,6 +4,7 @@ use std::{
 };
 
 type Receiver = Arc<Mutex<mpsc::Receiver<Message>>>;
+type Job = Box<dyn FnOnce() + Send + 'static>;
 
 struct Worker {
     id: usize,
@@ -11,6 +12,12 @@ struct Worker {
 }
 
 impl Worker {
+    /// Initializes a new worker thread.
+    ///
+    /// ## Parameters
+    ///
+    /// `id` is the identifier of the worker thread.
+    /// `receiver` is the receiving end of the channel used to communicate between threads.
     fn new(id: usize, receiver: Receiver) -> Self {
         let thread = thread::spawn(move || loop {
             // The call to recv blocks, so if there is no job yet,
@@ -40,8 +47,11 @@ impl Worker {
     }
 }
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
-
+/// Message sent between threads using channels.
+///
+/// A message can either be:
+/// - `NewJob` if a worker thread is consuming a new job, or
+/// - `Terminate` if a worker thread is told by the thread pool to stop working
 enum Message {
     NewJob(Job),
     Terminate,
@@ -77,6 +87,9 @@ impl ThreadPool {
         ThreadPool { workers, sender }
     }
 
+    /// Executes a job provided as a closure.
+    ///
+    /// The closure is sent from one thread to another using the `Send` trait.
     pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
@@ -89,6 +102,9 @@ impl ThreadPool {
     }
 }
 
+/// Cleans up the thread pool.
+///
+/// The worker threads are told to terminate, and their threads are joined.
 impl Drop for ThreadPool {
     fn drop(&mut self) {
         for worker in &mut self.workers {
